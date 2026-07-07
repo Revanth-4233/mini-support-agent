@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Support Agent — AI E-commerce Support</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+</head>
+<body>
+
+  <!-- ───────── Ambient glow blobs ───────── -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+
+  <!-- ───────── Header ───────── -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-icon">🤖</div>
+      <div>
+        <h1 class="app-title">Mini Support Agent</h1>
+        <p class="app-subtitle">AI-powered E-commerce Support</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="status-badge online"><span class="pulse"></span> Online</span>
+    </div>
+  </header>
+
+  <!-- ───────── Quick-question chips ───────── -->
+  <section class="chips-bar">
+    <button class="chip" data-query="What is the return policy for electronics?">↩️ Return policy for electronics?</button>
+    <button class="chip" data-query="Status of ORD1004">📦 Status of ORD1004</button>
+    <button class="chip" data-query="Can I return order ORD1004?">🔄 Can I return ORD1004?</button>
+    <button class="chip" data-query="Do you ship internationally?">🌍 Ship internationally?</button>
+    <button class="chip" data-query="What payment methods do you accept?">💳 Payment methods?</button>
+    <button class="chip" data-query="How do I reset my password?">🔑 Reset password?</button>
+  </section>
+
+  <!-- ───────── Main layout ───────── -->
+  <main class="main-grid">
+
+    <!-- ── Left: Chat panel ── -->
+    <section class="panel chat-panel">
+      <div class="panel-header">
+        <span class="panel-icon">💬</span>
+        <span class="panel-title">Chat</span>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <!-- welcome message injected by JS -->
+      </div>
+      <form class="chat-input-bar" id="chatForm" autocomplete="off">
+        <input
+          type="text"
+          id="chatInput"
+          class="chat-input"
+          placeholder="Ask me anything about orders, policies…"
+          autocomplete="off"
+        />
+        <button type="submit" class="send-btn" id="sendBtn" title="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- ── Right: Tabbed panel ── -->
+    <section class="panel info-panel">
+      <div class="tab-bar" id="tabBar">
+        <button class="tab active" data-tab="reasoning">
+          <span class="tab-icon">🧠</span> Reasoning
+        </button>
+        <button class="tab" data-tab="orders">
+          <span class="tab-icon">📋</span> Orders
+        </button>
+        <button class="tab" data-tab="policies">
+          <span class="tab-icon">📜</span> Policies
+        </button>
+      </div>
+
+      <!-- Tab: Reasoning -->
+      <div class="tab-content active" id="tab-reasoning">
+        <div class="empty-state" id="reasoningEmpty">
+          <div class="empty-icon">🧠</div>
+          <p>Ask a question to see the agent's reasoning trace</p>
+        </div>
+        <div id="reasoningSteps" class="reasoning-steps"></div>
+        <div id="sourcesList" class="sources-list"></div>
+        <div id="routeBadgeContainer" class="route-badge-container"></div>
+      </div>
+
+      <!-- Tab: Orders -->
+      <div class="tab-content" id="tab-orders">
+        <div class="table-wrap">
+          <table class="orders-table" id="ordersTable">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Amount (₹)</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Payment</th>
+                <th>Pincode</th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody">
+              <tr><td colspan="9" class="loading-cell">Loading orders…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Policies -->
+      <div class="tab-content" id="tab-policies">
+        <div class="policies-grid" id="policiesGrid">
+          <!-- injected by JS -->
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

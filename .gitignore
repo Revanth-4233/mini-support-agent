@@ -1,0 +1,22 @@
+# Environment secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# FAISS index (auto-generated)
+vector_db/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Original assignment files
+Assignment/
