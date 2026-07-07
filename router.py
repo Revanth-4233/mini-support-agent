@@ -111,7 +111,13 @@ def classify_query(query: str) -> Dict:
     Returns:
         { "intent": str, "order_id": str | None, "reasoning": str }
     """
-    raw = call_llm(query, system_prompt=ROUTER_SYSTEM_PROMPT)
+    try:
+        raw = call_llm(query, system_prompt=ROUTER_SYSTEM_PROMPT)
+    except Exception as e:
+        print(f"  [Warning] API call failed: {e}. Falling back to heuristic classifier.")
+        fallback = _keyword_fallback(query)
+        fallback["reasoning"] = f"API Rate-limit fallback: {fallback.get('reasoning')}"
+        return fallback
 
     # Extract JSON from the response (handle markdown code fences)
     json_match = re.search(r"\{.*\}", raw, re.DOTALL)
@@ -191,4 +197,42 @@ def generate_answer(query: str, context: str) -> str:
 
 Please answer the customer's question based on the context above."""
 
-    return call_llm(prompt, system_prompt=ANSWER_SYSTEM_PROMPT)
+    try:
+        return call_llm(prompt, system_prompt=ANSWER_SYSTEM_PROMPT)
+    except Exception as e:
+        print(f"  [Warning] API call failed: {e}. Generating offline fallback response.")
+        return _generate_offline_answer(query, context)
+
+
+def _generate_offline_answer(query: str, context: str) -> str:
+    """Synthesize a clean answer directly from context when LLM is rate-limited."""
+    lines = []
+    lines.append("⚠️ **Note**: The LLM service is currently busy or rate-limited. The system has automatically retrieved the verified database details below for your query:\n")
+    
+    for chunk in context.split("\n\n"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+            
+        if "Order Details for" in chunk or "Return Eligibility Check for" in chunk:
+            lines.append(f"### {chunk.splitlines()[0]}")
+            for line in chunk.splitlines()[1:]:
+                line = line.strip().replace('"', '').replace(',', '')
+                if line:
+                    lines.append(f"- **{line}**" if ":" in line else f"- {line}")
+        elif "[Policy:" in chunk:
+            header_match = re.search(r"\[Policy:\s*(.*?)\s*—\s*(.*?)\]", chunk)
+            if header_match:
+                source, section = header_match.groups()
+                lines.append(f"### {source.replace('_', ' ').title()} - {section}")
+            content_lines = chunk.split("\n", 1)[1] if "\n" in chunk else chunk
+            for line in content_lines.splitlines():
+                line = line.strip()
+                line = re.sub(r"^#+\s+", "", line)
+                if line:
+                    lines.append(f"  {line}")
+            lines.append("")
+        else:
+            lines.append(chunk)
+            
+    return "\n".join(lines)
