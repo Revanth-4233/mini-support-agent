@@ -157,7 +157,9 @@ def _keyword_fallback(query: str) -> Dict:
     policy_keywords = [
         "return", "refund", "ship", "delivery", "payment", "cancel",
         "exchange", "policy", "support", "loyalty", "coupon", "cod",
-        "tracking", "account", "gst", "invoice", "price",
+        "tracking", "account", "gst", "invoice", "price", "password",
+        "reset", "login", "register", "signin", "sign-in", "user",
+        "profile", "contact", "email", "phone", "help", "whatsapp",
     ]
     if any(kw in query.lower() for kw in policy_keywords):
         return {"intent": "KNOWLEDGE", "order_id": None, "reasoning": "Keyword fallback: policy keywords detected"}
