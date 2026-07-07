@@ -23,7 +23,7 @@
   // ══════════════════════════════════════════
   function showWelcome() {
     addAgentMessage(
-      `👋 <strong>Welcome!</strong> I'm your AI support assistant.<br>
+      `👋 <strong>Welcome!</strong> I'm your customer support assistant.<br>
        Ask me about <strong>order status</strong>, <strong>return policies</strong>, <strong>shipping</strong>, <strong>payments</strong>, or anything else related to your e-commerce experience.<br><br>
        Try one of the quick questions above, or type your own! 🚀`
     );
