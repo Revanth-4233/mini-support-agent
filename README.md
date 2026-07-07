@@ -49,7 +49,7 @@ User Query
 
 4. **Deterministic tool calls for order data** — The LLM never guesses order details. All order data comes directly from pandas CSV queries, guaranteeing correctness.
 
-5. **Keyword-based fallback router** — If the LLM classification response can't be parsed (e.g., malformed JSON), a rule-based fallback ensures the system still works.
+5. **Resilient Offline Fallback (Anti-Fragile Design)** — If the external LLM API is rate-limited (HTTP 429), offline, or encounters connection issues, the router gracefully degrades. It uses keyword heuristics to classify intent and compiles the final answer directly from the retrieved database details and FAISS policy chunks. The system never crashes with a 500 error, guaranteeing high uptime.
 
 ---
 
@@ -97,7 +97,7 @@ mini-support-agent/
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/mini-support-agent.git
+git clone https://github.com/Revanth-4233/mini-support-agent.git
 cd mini-support-agent
 
 # Install dependencies
