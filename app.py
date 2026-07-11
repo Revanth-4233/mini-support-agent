@@ -13,6 +13,15 @@ import uvicorn
 from pathlib import Path
 from typing import Dict, List
 
+# Force UTF-8 encoding for standard output and error on Windows to prevent UnicodeEncodeError
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -39,101 +48,115 @@ def process_query(query: str) -> Dict:
     sources: List[Dict] = []
     start = time.time()
 
-    # ── Step 1: Route ────────────────────────────────────────────────
-    steps.append({"step": "Classifying query intent...", "status": "running"})
-    classification = classify_query(query)
-    intent = classification["intent"]
-    order_id = classification.get("order_id")
-    steps[-1]["status"] = "done"
-    steps[-1]["result"] = f"Intent: {intent}" + (f"  |  Order: {order_id}" if order_id else "")
-    steps.append({"step": f"Route → {intent}", "status": "done", "result": classification.get("reasoning", "")})
+    try:
+        # ── Step 1: Route ────────────────────────────────────────────────
+        steps.append({"step": "Classifying query intent...", "status": "running"})
+        classification = classify_query(query)
+        intent = classification["intent"]
+        order_id = classification.get("order_id")
+        steps[-1]["status"] = "done"
+        steps[-1]["result"] = f"Intent: {intent}" + (f"  |  Order: {order_id}" if order_id else "")
+        steps.append({"step": f"Route → {intent}", "status": "done", "result": classification.get("reasoning", "")})
 
-    context_parts: list[str] = []
+        context_parts: list[str] = []
 
-    # ── Step 2a: Order data lookup ───────────────────────────────────
-    if intent in ("ORDER_DATA", "HYBRID"):
-        steps.append({"step": f"Looking up order {order_id}...", "status": "running"})
+        # ── Step 2a: Order data lookup ───────────────────────────────────
+        if intent in ("ORDER_DATA", "HYBRID"):
+            steps.append({"step": f"Looking up order {order_id}...", "status": "running"})
 
-        if not order_id:
-            steps[-1]["status"] = "error"
-            steps[-1]["result"] = "No order ID found in query"
+            if not order_id:
+                steps[-1]["status"] = "error"
+                steps[-1]["result"] = "No order ID found in query"
+                return _build_response(
+                    "I'd be happy to look up your order, but I couldn't find an order ID in your question. "
+                    "Could you please provide your order ID? It looks like ORD followed by four digits (e.g. ORD1001).",
+                    intent, steps, sources, start,
+                )
+
+            # For HYBRID queries about returns, use the chained tool
+            query_lower = query.lower()
+            if intent == "HYBRID" and any(kw in query_lower for kw in ["return", "refund", "exchange", "eligible"]):
+                result = tools.check_return_eligibility(order_id)
+                if result["success"]:
+                    context_parts.append(
+                        f"Return Eligibility Check for {order_id}:\n"
+                        f"  Eligible: {result.get('eligible', 'N/A')}\n"
+                        f"  Reason: {result['reason']}\n"
+                        f"  Order Details: {json.dumps(result.get('order_data', {}), indent=2)}"
+                    )
+                    steps[-1]["status"] = "done"
+                    steps[-1]["result"] = result["reason"]
+                    sources.append({"type": "order_data", "order_id": order_id})
+                else:
+                    steps[-1]["status"] = "error"
+                    steps[-1]["result"] = result["error"]
+                    return _build_response(result["error"], intent, steps, sources, start)
+            else:
+                result = tools.get_order_details(order_id)
+                if result["success"]:
+                    context_parts.append(
+                        f"Order Details for {order_id}:\n{json.dumps(result['data'], indent=2)}"
+                    )
+                    steps[-1]["status"] = "done"
+                    steps[-1]["result"] = f"Found: {result['data']['product']} — {result['data']['status']}"
+                    sources.append({"type": "order_data", "order_id": order_id})
+                else:
+                    steps[-1]["status"] = "error"
+                    steps[-1]["result"] = result["error"]
+                    return _build_response(result["error"], intent, steps, sources, start)
+
+        # ── Step 2b: RAG retrieval ───────────────────────────────────────
+        if intent in ("KNOWLEDGE", "HYBRID"):
+            steps.append({"step": "Searching policy documents...", "status": "running"})
+            retrieved = rag.retrieve(query, top_k=3)
+
+            if retrieved:
+                for chunk in retrieved:
+                    context_parts.append(
+                        f"[Policy: {chunk['source']} — {chunk['section']}]\n{chunk['content']}"
+                    )
+                    sources.append({
+                        "type": "policy",
+                        "source": chunk["source"],
+                        "section": chunk["section"],
+                        "score": chunk["score"],
+                    })
+                steps[-1]["status"] = "done"
+                steps[-1]["result"] = f"Retrieved {len(retrieved)} relevant policy chunks"
+            else:
+                steps[-1]["status"] = "done"
+                steps[-1]["result"] = "No relevant policy documents found"
+
+        # ── Step 2c: Unknown intent ──────────────────────────────────────
+        if intent == "UNKNOWN":
             return _build_response(
-                "I'd be happy to look up your order, but I couldn't find an order ID in your question. "
-                "Could you please provide your order ID? It looks like ORD followed by four digits (e.g. ORD1001).",
+                "I'm sorry, I can only help with questions about our e-commerce store - "
+                "things like order status, shipping, returns, payments, and account support. "
+                "Could you rephrase your question?",
                 intent, steps, sources, start,
             )
 
-        # For HYBRID queries about returns, use the chained tool
-        query_lower = query.lower()
-        if intent == "HYBRID" and any(kw in query_lower for kw in ["return", "refund", "exchange", "eligible"]):
-            result = tools.check_return_eligibility(order_id)
-            if result["success"]:
-                context_parts.append(
-                    f"Return Eligibility Check for {order_id}:\n"
-                    f"  Eligible: {result.get('eligible', 'N/A')}\n"
-                    f"  Reason: {result['reason']}\n"
-                    f"  Order Details: {json.dumps(result.get('order_data', {}), indent=2)}"
-                )
-                steps[-1]["status"] = "done"
-                steps[-1]["result"] = result["reason"]
-                sources.append({"type": "order_data", "order_id": order_id})
-            else:
-                steps[-1]["status"] = "error"
-                steps[-1]["result"] = result["error"]
-                return _build_response(result["error"], intent, steps, sources, start)
+        # ── Step 3: Generate answer ──────────────────────────────────────
+        steps.append({"step": "Generating answer...", "status": "running"})
+        context = "\n\n".join(context_parts) if context_parts else "No relevant context found."
+        answer = generate_answer(query, context)
+        steps[-1]["status"] = "done"
+        steps[-1]["result"] = "Answer generated"
+
+        return _build_response(answer, intent, steps, sources, start)
+    except Exception as e:
+        print(f"  [Critical Error] Unexpected error during query processing: {e}")
+        # Ensure we have a valid last step status if it was left running
+        if steps and steps[-1]["status"] == "running":
+            steps[-1]["status"] = "error"
+            steps[-1]["result"] = str(e)
         else:
-            result = tools.get_order_details(order_id)
-            if result["success"]:
-                context_parts.append(
-                    f"Order Details for {order_id}:\n{json.dumps(result['data'], indent=2)}"
-                )
-                steps[-1]["status"] = "done"
-                steps[-1]["result"] = f"Found: {result['data']['product']} — {result['data']['status']}"
-                sources.append({"type": "order_data", "order_id": order_id})
-            else:
-                steps[-1]["status"] = "error"
-                steps[-1]["result"] = result["error"]
-                return _build_response(result["error"], intent, steps, sources, start)
-
-    # ── Step 2b: RAG retrieval ───────────────────────────────────────
-    if intent in ("KNOWLEDGE", "HYBRID"):
-        steps.append({"step": "Searching policy documents...", "status": "running"})
-        retrieved = rag.retrieve(query, top_k=3)
-
-        if retrieved:
-            for chunk in retrieved:
-                context_parts.append(
-                    f"[Policy: {chunk['source']} — {chunk['section']}]\n{chunk['content']}"
-                )
-                sources.append({
-                    "type": "policy",
-                    "source": chunk["source"],
-                    "section": chunk["section"],
-                    "score": chunk["score"],
-                })
-            steps[-1]["status"] = "done"
-            steps[-1]["result"] = f"Retrieved {len(retrieved)} relevant policy chunks"
-        else:
-            steps[-1]["status"] = "done"
-            steps[-1]["result"] = "No relevant policy documents found"
-
-    # ── Step 2c: Unknown intent ──────────────────────────────────────
-    if intent == "UNKNOWN":
+            steps.append({"step": "Processing query...", "status": "error", "result": str(e)})
         return _build_response(
-            "I'm sorry, I can only help with questions about our e-commerce store - "
-            "things like order status, shipping, returns, payments, and account support. "
-            "Could you rephrase your question?",
-            intent, steps, sources, start,
+            "I encountered an unexpected issue while processing your request. "
+            "Please try again. If the issue persists, contact support.",
+            "UNKNOWN", steps, sources, start,
         )
-
-    # ── Step 3: Generate answer ──────────────────────────────────────
-    steps.append({"step": "Generating answer...", "status": "running"})
-    context = "\n\n".join(context_parts) if context_parts else "No relevant context found."
-    answer = generate_answer(query, context)
-    steps[-1]["status"] = "done"
-    steps[-1]["result"] = "Answer generated"
-
-    return _build_response(answer, intent, steps, sources, start)
 
 
 def _build_response(
@@ -156,15 +179,15 @@ def _build_response(
 # FastAPI Web Server
 # ─────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Mini Support Agent", version="1.0.0")
-
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Initialise the RAG index on server start."""
     print("\n[*] Mini Support Agent starting up...")
     rag.build_index()
     print("[OK] Ready to serve!\n")
+    yield
+
+app = FastAPI(title="Mini Support Agent", version="1.0.0", lifespan=lifespan)
 
 
 @app.post("/api/chat")

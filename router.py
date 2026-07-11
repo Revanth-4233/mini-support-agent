@@ -31,6 +31,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
 def _call_gemini(prompt: str, system_prompt: str | None = None) -> str:
     """Call Google Gemini API."""
     import google.generativeai as genai
+    from google.api_core.retry import Retry
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key or api_key == "your_gemini_api_key_here":
@@ -43,7 +44,16 @@ def _call_gemini(prompt: str, system_prompt: str | None = None) -> str:
         "gemini-2.0-flash",
         system_instruction=system_prompt,
     )
-    response = model.generate_content(prompt)
+    
+    # Performance Optimization: Enforce a fast timeout (5.0s) and disable 
+    # automatic backoff retries. If the API key is rate-limited or offline, 
+    # we want to fail fast (within 1s) and trigger our local fallback 
+    # immediately, preventing the UI chat bubble from hanging.
+    fast_options = {
+        "timeout": 5.0,
+        "retry": Retry(predicate=lambda e: False),
+    }
+    response = model.generate_content(prompt, request_options=fast_options)
     return response.text
 
 
@@ -66,6 +76,7 @@ def _call_openai(prompt: str, system_prompt: str | None = None) -> str:
         model="gpt-4o-mini",
         messages=messages,
         temperature=0,
+        timeout=5.0,
     )
     return response.choices[0].message.content
 
@@ -128,6 +139,23 @@ def classify_query(query: str) -> Dict:
             result["intent"] = result.get("intent", "UNKNOWN").upper()
             if result["intent"] not in ("KNOWLEDGE", "ORDER_DATA", "HYBRID", "UNKNOWN"):
                 result["intent"] = "UNKNOWN"
+            
+            # Robustly parse and normalise order_id
+            order_id = result.get("order_id")
+            if isinstance(order_id, str):
+                order_id_clean = order_id.strip().upper()
+                if order_id_clean in ("NULL", "NONE", "", "UNDEFINED"):
+                    result["order_id"] = None
+                else:
+                    # Look for ORDXXXX format with optional spaces, e.g. "ORD 1004" -> "ORD1004"
+                    m = re.search(r"ORD\s*\d{4}", order_id_clean)
+                    result["order_id"] = m.group().replace(" ", "") if m else None
+            elif order_id is None:
+                result["order_id"] = None
+            else:
+                # If it's a number or something else
+                result["order_id"] = str(order_id).strip()
+            
             return result
         except json.JSONDecodeError:
             pass
@@ -139,8 +167,8 @@ def classify_query(query: str) -> Dict:
 def _keyword_fallback(query: str) -> Dict:
     """Simple rule-based fallback when the LLM response can't be parsed."""
     query_upper = query.upper()
-    order_match = re.search(r"ORD\d{4}", query_upper)
-    order_id = order_match.group() if order_match else None
+    order_match = re.search(r"ORD\s*\d{4}", query_upper)
+    order_id = order_match.group().replace(" ", "") if order_match else None
 
     # If an order ID is mentioned
     if order_id:
@@ -160,6 +188,8 @@ def _keyword_fallback(query: str) -> Dict:
         "tracking", "account", "gst", "invoice", "price", "password",
         "reset", "login", "register", "signin", "sign-in", "user",
         "profile", "contact", "email", "phone", "help", "whatsapp",
+        "gift", "wrap", "wrapping", "pack", "packaging", "card",
+        "offer", "discount", "sale", "charge", "fee", "cost", "price",
     ]
     if any(kw in query.lower() for kw in policy_keywords):
         return {"intent": "KNOWLEDGE", "order_id": None, "reasoning": "Keyword fallback: policy keywords detected"}

@@ -110,6 +110,9 @@ cp .env.example .env
 
 ### Running the Agent
 
+**Windows Launcher Menu (Double-Click Shortcut):**
+- Double-click `run_windows.bat` in Windows Explorer to open a launcher menu that allows you to easily start the web server, launch the interactive CLI, or run tests.
+
 **Web UI (recommended):**
 ```bash
 python app.py
@@ -124,6 +127,12 @@ python app.py --interactive
 **Single query:**
 ```bash
 python app.py "What is the return policy for electronics?"
+```
+
+**Automated Test Suite:**
+To run the automated programmatic test runner checking all 10 core scenarios:
+```bash
+python test_runner.py
 ```
 
 ---
